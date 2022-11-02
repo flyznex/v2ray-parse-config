@@ -1,0 +1,45 @@
+{
+  "inbounds": [{
+    "port": 10808,
+    "listen": "0.0.0.0",
+    "protocol": "socks",
+    "settings": {
+      "udp": true
+    }
+  }],
+  "outbounds": [{
+    "protocol": "vmess",
+    "settings": {
+      "vnext": [{
+        "address": "my.v2-ray.com",
+        "port": 443,
+        "users": [{ "id": "afef92d5-b5b9-46aa-a982-3914fe62c1c5", "alterId": 0 }]
+      }]
+    },
+    "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+            "allowInsecure": true
+        },
+        "wsSettings": {
+        "path": "/fastssh/1208/62f5b158a6c55/",
+        "headers": {
+            "Host": "mobiedu.vn"
+        }
+      }
+    }
+  },{
+    "protocol": "freedom",
+    "tag": "direct",
+    "settings": {}
+  }],
+  "routing": {
+    "domainStrategy": "IPOnDemand",
+    "rules": [{
+      "type": "field",
+      "ip": ["geoip:private"],
+      "outboundTag": "direct"
+    }]
+  }
+}
