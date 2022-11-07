@@ -32,6 +32,7 @@ type Config struct {
 var (
 	vmessPrefix             = "vmess://"
 	ErrorInvalidFormatVMess = errors.New("invalid format vmess")
+	serverPort              = ":8080"
 )
 
 func parseVmess(input string) (map[string]interface{}, error) {
@@ -183,7 +184,7 @@ func main() {
 			}
 			ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
 		})
-		r.Run()
+		r.Run(serverPort)
 	}
 	err := clipboard.Init()
 	if err != nil {
@@ -194,33 +195,36 @@ func main() {
 	if len(strContent) <= 0 {
 		strContent = string(clbContent)
 	}
-	cfg, err := ParseConfigV2ray(strContent)
+
+}
+func genVmessConfig(input string, templatePath, storePath string) error {
+	cfg, err := ParseConfigV2ray(input)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	tmpl, err := template.New("vmessConfig").Parse(tmplString)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	f, err := os.OpenFile(*rOuput, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	f, err := os.OpenFile(storePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	if err := tmpl.Execute(f, cfg); err != nil {
 		log.Println(err)
 	}
 	f.Close()
-
+	return nil
 }
 
 func genClashConfig(input string, templatePath, storePath string) error {
-	tmplC, err := template.ParseFiles(*clashCfgTemplatePath)
+	tmplC, err := template.ParseFiles(templatePath)
 	if err != nil {
 		return err
 	}
-	fc, err := os.OpenFile(*cOutput, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	fc, err := os.OpenFile(storePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
@@ -236,7 +240,7 @@ func genClashConfig(input string, templatePath, storePath string) error {
 	if err := tmplC.Execute(fc, string(jsonConfig)); err != nil {
 		log.Println(err)
 	}
-	fc.Close()
+	defer fc.Close()
 	return nil
 }
 
