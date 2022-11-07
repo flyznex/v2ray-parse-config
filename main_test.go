@@ -21,7 +21,7 @@ var (
 )
 
 func TestParseConfig(t *testing.T) {
-	cfg, err := ParseConfigFastssh(dummyInput)
+	cfg, err := ParseConfigV2ray(dummyInput)
 	if err != nil {
 		t.Error(err)
 	}
@@ -33,7 +33,7 @@ func TestParseConfig(t *testing.T) {
 func handleInvalidPrefix() func(t *testing.T) {
 	return func(t *testing.T) {
 		invalidStr := "abcdec"
-		_, err := ParseConfigFastssh(invalidStr)
+		_, err := ParseConfigV2ray(invalidStr)
 		if want, got := ErrorInvalidFormatVMess, err; got != want {
 			t.Errorf("Want error: %s, but got error: %s", want.Error(), got.Error())
 		}

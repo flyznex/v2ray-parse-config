@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"text/template"
 
+	"github.com/gin-gonic/gin"
 	"golang.design/x/clipboard"
 )
 
@@ -31,7 +34,7 @@ var (
 	ErrorInvalidFormatVMess = errors.New("invalid format vmess")
 )
 
-func ParseConfigFastssh(input string) (*Config, error) {
+func parseVmess(input string) (map[string]interface{}, error) {
 	if !strings.Contains(input, vmessPrefix) {
 		return nil, ErrorInvalidFormatVMess
 	}
@@ -59,6 +62,14 @@ func ParseConfigFastssh(input string) (*Config, error) {
 	  "type": "none",
 	  "v": "2"
 		}*/
+	return out, nil
+}
+
+func ParseConfigV2ray(input string) (*Config, error) {
+	out, err := parseVmess(input)
+	if err != nil {
+		return nil, err
+	}
 	config := new(Config)
 
 	if add, ok := out["add"]; ok {
@@ -89,12 +100,91 @@ func ParseConfigFastssh(input string) (*Config, error) {
 	return config, nil
 }
 
+func ParseConfigClash(input string) (map[string]interface{}, error) {
+	out, err := parseVmess(input)
+	if err != nil {
+		return nil, err
+	}
+	/* {
+	  "type": "vmess",
+	  "name": "sg-lb.vhax.net",
+	  "ws-opts": {
+	    "path": "/sshkit/03602ak019/6350f87e63f41/",
+	    "headers": {
+	      "host": "dl.kgvn.garenanow.com"
+	    }
+	  },
+	  "server": "sg-lb.vhax.net",
+	  "port": "443",
+	  "uuid": "6fea1649-425b-4092-bf53-29792152c925",
+	  "alterId": "0",
+	  "cipher": "auto",
+	  "network": "ws",
+	  "tls": true
+	}*/
+	proxyCfg := map[string]interface{}{
+		"type": "vmess",
+		"name": "vmess",
+		"ws-opts": map[string]interface{}{
+			"path": out["path"],
+			"headers": map[string]interface{}{
+				"host": out["host"],
+			},
+		},
+		"server":  out["add"],
+		"port":    out["port"],
+		"uuid":    out["id"],
+		"alterId": out["aid"],
+		"cipher":  "auto",
+		"network": "ws",
+	}
+
+	if _, ok := out["tls"]; ok {
+		proxyCfg["tls"] = true
+		proxyCfg["skip-cert-verify"] = true
+	}
+	return proxyCfg, nil
+}
+
 var rInput = flag.String("i", "", "Vmess string input")
 var rOuput = flag.String("f", "./v2ray-config.json", "V2ray Config Json Path")
+var clashCfgTemplatePath = flag.String("t", "./config.tmpl", "template config")
+var cOutput = flag.String("c", "./config.yaml", "Clash config output path")
+var modeApi = flag.Bool("m", true, "enable mod api")
 
 func main() {
 	flag.Parse()
 
+	if *modeApi {
+		r := gin.Default()
+		r.GET("/clash-config", func(c *gin.Context) {
+			c.FileAttachment(string(*cOutput), "config.yaml")
+		})
+		r.POST("/config", gin.BasicAuth(gin.Accounts{
+			"thuanpt": "123@123a",
+		}), func(ctx *gin.Context) {
+			jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+			if err != nil {
+				ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid input"})
+				return
+			}
+			type data struct {
+				Vmess string `json:"vmess"`
+			}
+			d := &data{}
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid json struct"})
+				return
+			}
+
+			if err := genClashConfig(d.Vmess, *clashCfgTemplatePath, *cOutput); err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"message": "Error Generate file"})
+				return
+			}
+			ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
+		})
+		r.Run()
+	}
 	err := clipboard.Init()
 	if err != nil {
 		panic(err)
@@ -104,7 +194,7 @@ func main() {
 	if len(strContent) <= 0 {
 		strContent = string(clbContent)
 	}
-	cfg, err := ParseConfigFastssh(strContent)
+	cfg, err := ParseConfigV2ray(strContent)
 	if err != nil {
 		panic(err)
 	}
@@ -112,14 +202,42 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	f, err := os.OpenFile(*rOuput, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+
 	if err := tmpl.Execute(f, cfg); err != nil {
 		log.Println(err)
 	}
+	f.Close()
+
+}
+
+func genClashConfig(input string, templatePath, storePath string) error {
+	tmplC, err := template.ParseFiles(*clashCfgTemplatePath)
+	if err != nil {
+		return err
+	}
+	fc, err := os.OpenFile(*cOutput, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+
+	cparse, err := ParseConfigClash(input)
+	if err != nil {
+		return err
+	}
+	jsonConfig, err := json.Marshal(cparse)
+	if err != nil {
+		return err
+	}
+	if err := tmplC.Execute(fc, string(jsonConfig)); err != nil {
+		log.Println(err)
+	}
+	fc.Close()
+	return nil
 }
 
 var (
