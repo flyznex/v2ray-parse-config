@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -157,6 +158,9 @@ func main() {
 	flag.Parse()
 
 	if *modeApi {
+		if p := os.Getenv("PORT"); len(p) > 0 {
+			serverPort = fmt.Sprintf(":%s", p)
+		}
 		r := gin.Default()
 		r.GET("/clash-config", func(c *gin.Context) {
 			c.FileAttachment(string(*cOutput), "config.yaml")
