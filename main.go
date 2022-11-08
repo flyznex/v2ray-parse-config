@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	ht "html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.design/x/clipboard"
@@ -34,9 +38,11 @@ var (
 	vmessPrefix             = "vmess://"
 	ErrorInvalidFormatVMess = errors.New("invalid format vmess")
 	serverPort              = ":8080"
+	//go:embed assets/html/*
+	f embed.FS
 )
 
-func parseVmess(input string) (map[string]interface{}, error) {
+func parseVmessString(input string) (map[string]interface{}, error) {
 	if !strings.Contains(input, vmessPrefix) {
 		return nil, ErrorInvalidFormatVMess
 	}
@@ -68,7 +74,7 @@ func parseVmess(input string) (map[string]interface{}, error) {
 }
 
 func ParseConfigV2ray(input string) (*Config, error) {
-	out, err := parseVmess(input)
+	out, err := parseVmessString(input)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +109,7 @@ func ParseConfigV2ray(input string) (*Config, error) {
 }
 
 func ParseConfigClash(input string) (map[string]interface{}, error) {
-	out, err := parseVmess(input)
+	out, err := parseVmessString(input)
 	if err != nil {
 		return nil, err
 	}
@@ -148,48 +154,79 @@ func ParseConfigClash(input string) (map[string]interface{}, error) {
 	return proxyCfg, nil
 }
 
-var rInput = flag.String("i", "", "Vmess string input")
-var rOuput = flag.String("f", "./v2ray-config.json", "V2ray Config Json Path")
-var clashCfgTemplatePath = flag.String("t", "./config.tmpl", "template config")
-var cOutput = flag.String("c", "./config.yaml", "Clash config output path")
-var modeApi = flag.Bool("m", true, "enable mod api")
+var (
+	rInput               = flag.String("i", "", "Vmess string input")
+	v2RayTemplatePath    = flag.String("r", "./assets/template/v2ray-config.tml", "V2ray config template")
+	rOuput               = flag.String("f", "./v2ray-config.json", "V2ray Config Json Path")
+	clashCfgTemplatePath = flag.String("t", "./assets/template/config.tmpl", "template config")
+	cOutput              = flag.String("c", "./config.yaml", "Clash config output path")
+	modeApi              = flag.Bool("m", true, "enable mod api")
+)
 
 func main() {
 	flag.Parse()
-
 	if *modeApi {
-		if p := os.Getenv("PORT"); len(p) > 0 {
-			serverPort = fmt.Sprintf(":%s", p)
-		}
-		r := gin.Default()
-		r.GET("/clash-config", func(c *gin.Context) {
-			c.FileAttachment(string(*cOutput), "config.yaml")
-		})
-		r.POST("/config", gin.BasicAuth(gin.Accounts{
-			"thuanpt": "123@123a",
-		}), func(ctx *gin.Context) {
-			jsonData, err := ioutil.ReadAll(ctx.Request.Body)
-			if err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid input"})
-				return
-			}
-			type data struct {
-				Vmess string `json:"vmess"`
-			}
-			d := &data{}
-			if err := json.Unmarshal(jsonData, &d); err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid json struct"})
-				return
-			}
-
-			if err := genClashConfig(d.Vmess, *clashCfgTemplatePath, *cOutput); err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"message": "Error Generate file"})
-				return
-			}
-			ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
-		})
-		r.Run(serverPort)
+		runModeApi()
+	} else {
+		modeCli()
 	}
+
+}
+
+func runModeApi() {
+	if p := os.Getenv("PORT"); len(p) > 0 {
+		serverPort = fmt.Sprintf(":%s", p)
+	}
+	acc := os.Getenv("BASIC_AUTH")
+	inf := strings.Split(acc, ":")
+	if len(inf) != 2 {
+		fmt.Println("[MODE: API] [ERROR]: Invalid basic auth config")
+		return
+	}
+
+	r := gin.Default()
+	//load tmpl
+	templ := ht.Must(ht.New("").ParseFS(f, "assets/html/*.tmpl"))
+	r.SetHTMLTemplate(templ)
+	r.GET("/clash-config", func(c *gin.Context) {
+		c.FileAttachment(string(*cOutput), "config.yaml")
+	})
+	r.GET("/", func(ctx *gin.Context) {
+		updatedAt := readUpdatedAt()
+		ctx.HTML(http.StatusOK, "index.tmpl", gin.H{
+			"UpdatedAt": updatedAt,
+		})
+	})
+	r.GET("/status", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{"updated_at": readUpdatedAt()})
+	})
+	r.POST("/config", gin.BasicAuth(gin.Accounts{
+		inf[0]: inf[1],
+	}), func(ctx *gin.Context) {
+		jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid input"})
+			return
+		}
+		type data struct {
+			Vmess string `json:"vmess"`
+		}
+		d := &data{}
+		if err := json.Unmarshal(jsonData, &d); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid json struct"})
+			return
+		}
+
+		if err := genClashConfig(d.Vmess, *clashCfgTemplatePath, *cOutput); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": "Error Generate file"})
+			return
+		}
+		ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
+	})
+	r.Run(serverPort)
+}
+
+func modeCli() {
 	err := clipboard.Init()
 	if err != nil {
 		panic(err)
@@ -199,27 +236,50 @@ func main() {
 	if len(strContent) <= 0 {
 		strContent = string(clbContent)
 	}
+	if err := genVmessConfig(strContent, *v2RayTemplatePath, *rOuput); err != nil {
+		fmt.Println("[MODE: CLI] [GenVMESS] [ERROR]: ", err.Error())
+	}
+	if err := genClashConfig(strContent, *clashCfgTemplatePath, *cOutput); err != nil {
+		fmt.Println("[MODE: CLI] [GenClashConfig] [ERROR]: ", err.Error())
+	}
+}
 
+func readUpdatedAt() string {
+	f, err := os.Open(*cOutput)
+	if err != nil {
+		fmt.Println("[ERROR] Get updated time got error", err.Error())
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	var line int
+	for scanner.Scan() {
+		if line == 0 {
+			return scanner.Text()[19:]
+		}
+	}
+	return ""
 }
 func genVmessConfig(input string, templatePath, storePath string) error {
 	cfg, err := ParseConfigV2ray(input)
 	if err != nil {
 		return err
 	}
-	tmpl, err := template.New("vmessConfig").Parse(tmplString)
+	tmpl, err := template.ParseFiles(templatePath)
 	if err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(storePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	fe, err := os.OpenFile(storePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
 
-	if err := tmpl.Execute(f, cfg); err != nil {
+	if err := tmpl.Execute(fe, cfg); err != nil {
 		log.Println(err)
 	}
-	f.Close()
+	fe.Close()
 	return nil
 }
 
@@ -241,58 +301,17 @@ func genClashConfig(input string, templatePath, storePath string) error {
 	if err != nil {
 		return err
 	}
-	if err := tmplC.Execute(fc, string(jsonConfig)); err != nil {
+	type cfg struct {
+		Value     string
+		UpdatedAt string
+	}
+	data := cfg{
+		Value:     string(jsonConfig),
+		UpdatedAt: time.Now().In(time.FixedZone("UTC+7", +7*60*60)).Format("2006-01-02T15:04:05"),
+	}
+	if err := tmplC.Execute(fc, data); err != nil {
 		log.Println(err)
 	}
 	defer fc.Close()
 	return nil
 }
-
-var (
-	tmplString = `{
-  "inbounds": [{
-    "port": 10808,
-    "listen": "0.0.0.0",
-    "protocol": "socks",
-    "settings": {
-      "udp": true
-    }
-  }],
-  "outbounds": [{
-    "protocol": "vmess",
-    "settings": {
-      "vnext": [{
-        "address": "{{- .VnextAddr }}",
-        "port": {{ .VnextPort }},
-        "users": [{ "id": "{{ .VnextUserID }}", "alterId": {{ .VnextUserAlterId }} }]
-      }]
-    },
-    "streamSettings": {
-        "network": "{{ .StreamSettingNetwork }}",
-        "security": "{{ .StreamSettingSecurity }}",
-        "tlsSettings": {
-            "allowInsecure": {{ .StreamSettingTLSInsecure }}
-        },
-        "wsSettings": {
-        "path": "{{ .StreamSettingWSPath }}",
-        "headers": {
-            "Host": "{{ .StreamSettingWSHeaderHost }}"
-        }
-      }
-    }
-  },{
-    "protocol": "freedom",
-    "tag": "direct",
-    "settings": {}
-  }],
-  "routing": {
-    "domainStrategy": "IPOnDemand",
-    "rules": [{
-      "type": "field",
-      "ip": ["geoip:private"],
-      "outboundTag": "direct"
-    }]
-  }
-}
-`
-)

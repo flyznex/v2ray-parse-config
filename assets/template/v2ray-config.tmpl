@@ -1,0 +1,45 @@
+{
+  "inbounds": [{
+    "port": 10808,
+    "listen": "0.0.0.0",
+    "protocol": "socks",
+    "settings": {
+      "udp": true
+    }
+  }],
+  "outbounds": [{
+    "protocol": "vmess",
+    "settings": {
+      "vnext": [{
+        "address": "{{- .VnextAddr }}",
+        "port": {{ .VnextPort }},
+        "users": [{ "id": "{{ .VnextUserID }}", "alterId": {{ .VnextUserAlterId }} }]
+      }]
+    },
+    "streamSettings": {
+        "network": "{{ .StreamSettingNetwork }}",
+        "security": "{{ .StreamSettingSecurity }}",
+        "tlsSettings": {
+            "allowInsecure": {{ .StreamSettingTLSInsecure }}
+        },
+        "wsSettings": {
+        "path": "{{ .StreamSettingWSPath }}",
+        "headers": {
+            "Host": "{{ .StreamSettingWSHeaderHost }}"
+        }
+      }
+    }
+  },{
+    "protocol": "freedom",
+    "tag": "direct",
+    "settings": {}
+  }],
+  "routing": {
+    "domainStrategy": "IPOnDemand",
+    "rules": [{
+      "type": "field",
+      "ip": ["geoip:private"],
+      "outboundTag": "direct"
+    }]
+  }
+}
