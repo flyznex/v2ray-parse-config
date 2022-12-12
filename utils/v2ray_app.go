@@ -3,11 +3,11 @@ package utils
 import (
 	"encoding/base64"
 	"encoding/json"
-	"html/template"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"text/template"
 	"v2rayconfig/config"
 	"v2rayconfig/model"
 )

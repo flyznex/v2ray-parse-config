@@ -2,8 +2,8 @@ package utils
 
 import (
 	"encoding/json"
-	"html/template"
 	"os"
+	"text/template"
 	"time"
 	"v2rayconfig/config"
 
@@ -79,6 +79,7 @@ func genClashConfig(input string, templatePath, storePath string) error {
 	if err != nil {
 		return err
 	}
+
 	cparse, err := parseConfigClash(input)
 	if err != nil {
 		return err

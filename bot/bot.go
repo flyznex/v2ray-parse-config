@@ -88,12 +88,12 @@ func (b *Bot) Run(cfg *config.Config, parser ...utils.Parser) {
 		} else {
 			switch update.Message.Command() {
 			case "help":
-				msg.Text = "I understand /update and /status, /end"
+				msg.Text = "I understand /update and /status"
 			case "update":
 				msg.Text = "Please insert vmess string to update config file"
 				b.Conv[strUserId] = "update"
 			case "status":
-				msg.Text = "I'm ok."
+				msg.Text = "I'm ok"
 			default:
 				msg.Text = "I don't know that command"
 			}
@@ -103,4 +103,5 @@ func (b *Bot) Run(cfg *config.Config, parser ...utils.Parser) {
 			log.Error().Err(err).Msg("")
 		}
 	}
+
 }
